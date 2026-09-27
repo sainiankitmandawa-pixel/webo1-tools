@@ -1,7 +1,9 @@
-flask
+Flask
 flask-cors
 pdf2docx
 pdfplumber
 pandas
-python-pptx
 openpyxl
+python-pptx
+PyMuPDF
+reportlab
