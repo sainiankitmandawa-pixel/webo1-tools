@@ -33,7 +33,7 @@ def convert_file():
     output_path = None
 
     try:
-        # 1. MERGE PDF (Multiple files)
+        # 1. MERGE PDF
         if tool_name == 'MERGE PDF':
             files = request.files.getlist('file')
             if not files or len(files) < 2:
@@ -56,7 +56,7 @@ def convert_file():
                 try: os.remove(p)
                 except: pass
 
-        # 2. JPG to PDF (Multiple Images)
+        # 2. JPG to PDF (Optimized memory usage)
         elif tool_name == 'JPG to PDF':
             files = request.files.getlist('file')
             if not files:
@@ -78,6 +78,8 @@ def convert_file():
                     pdfbytes = img_doc.convert_to_pdf()
                     img_pdf = fitz.open("pdf", pdfbytes)
                     doc.insert_pdf(img_pdf)
+                    img_doc.close()
+                    img_pdf.close()
                 except Exception as e:
                     print(f"Skipping image error: {e}")
             doc.save(output_path)
@@ -203,10 +205,11 @@ def convert_file():
                 doc = fitz.open(input_path)
                 image_paths = []
                 for i, page in enumerate(doc):
-                    pix = page.get_pixmap(dpi=150)
+                    pix = page.get_pixmap(dpi=120)  # Optimized DPI to prevent memory overflow
                     img_path = os.path.join(UPLOAD_FOLDER, f"page_{i+1}.jpg")
                     pix.save(img_path)
                     image_paths.append(img_path)
+                doc.close()
                 
                 if len(image_paths) == 1:
                     output_path = image_paths[0]
@@ -215,6 +218,9 @@ def convert_file():
                     with zipfile.ZipFile(output_path, 'w') as zipf:
                         for img in image_paths:
                             zipf.write(img, os.path.basename(img))
+                    for img in image_paths:
+                        try: os.remove(img)
+                        except: pass
 
             if os.path.exists(input_path):
                 try: os.remove(input_path)
