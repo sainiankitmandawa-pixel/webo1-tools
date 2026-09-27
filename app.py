@@ -12,6 +12,7 @@ from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
+from pypdf import PdfMerger, PdfReader, PdfWriter
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
@@ -21,25 +22,45 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 @app.route('/', methods=['GET'])
 def home():
-    return "Webo1 Tools - Backend is 100% Live & Updated!"
+    return "Webo1 Tools - Stable Backend is 100% Live!"
 
 def convert_to_pdf_linux(input_path, output_dir):
     subprocess.run(['libreoffice', '--headless', '--convert-to', 'pdf', input_path, '--outdir', output_dir])
 
 @app.route('/convert', methods=['POST'])
 def convert_file():
-    if 'file' not in request.files and 'files' not in request.files:
-        return "No file uploaded", 400
-        
     tool_name = request.form.get('toolName')
     output_path = None
 
     try:
-        # Multi-file handling for JPG to PDF
-        if tool_name in ['JPG to PDF', 'IMAGE to PDF', 'PNG to PDF']:
-            files = request.files.getlist('file') or request.files.getlist('files')
+        # 1. MERGE PDF (Multiple files)
+        if tool_name == 'MERGE PDF':
+            files = request.files.getlist('file')
+            if not files or len(files) < 2:
+                return "Please select at least 2 PDF files to merge", 400
+            
+            merger = PdfMerger()
+            saved_paths = []
+            for file in files:
+                if file.filename:
+                    fname = file.filename.replace(" ", "_")
+                    fpath = os.path.join(UPLOAD_FOLDER, fname)
+                    file.save(fpath)
+                    saved_paths.append(fpath)
+                    merger.append(fpath)
+            
+            output_path = os.path.join(UPLOAD_FOLDER, "webo1_merged.pdf")
+            merger.write(output_path)
+            merger.close()
+            for p in saved_paths:
+                try: os.remove(p)
+                except: pass
+
+        # 2. JPG to PDF (Multiple Images)
+        elif tool_name == 'JPG to PDF':
+            files = request.files.getlist('file')
             if not files:
-                return "No images uploaded", 400
+                return "Please select image files", 400
             
             img_paths = []
             for file in files:
@@ -49,71 +70,86 @@ def convert_file():
                     file.save(fpath)
                     img_paths.append(fpath)
             
-            output_path = os.path.join(UPLOAD_FOLDER, "converted_images.pdf")
-            
-            # Convert multiple images into a single clean PDF using fitz (PyMuPDF)
+            output_path = os.path.join(UPLOAD_FOLDER, "webo1_images.pdf")
             doc = fitz.open()
             for img_path in img_paths:
-                img_doc = fitz.open(img_path)
-                pdfbytes = img_doc.convert_to_pdf()
-                img_pdf = fitz.open("pdf", pdfbytes)
-                doc.insert_pdf(img_pdf)
+                try:
+                    img_doc = fitz.open(img_path)
+                    pdfbytes = img_doc.convert_to_pdf()
+                    img_pdf = fitz.open("pdf", pdfbytes)
+                    doc.insert_pdf(img_pdf)
+                except Exception as e:
+                    print(f"Skipping image error: {e}")
             doc.save(output_path)
             doc.close()
+            for p in img_paths:
+                try: os.remove(p)
+                except: pass
 
         else:
+            if 'file' not in request.files:
+                return "No file uploaded", 400
+            
             file = request.files['file']
             filename = file.filename.replace(" ", "_")
             input_path = os.path.join(UPLOAD_FOLDER, filename)
             file.save(input_path)
 
-            # 1. PDF to WORD
-            if tool_name == 'PDF to WORD':
+            # 3. SPLIT PDF
+            if tool_name == 'SPLIT PDF':
+                reader = PdfReader(input_path)
+                writer = PdfWriter()
+                if len(reader.pages) > 0:
+                    writer.add_page(reader.pages[0])
+                output_path = input_path.rsplit('.', 1)[0] + '_split.pdf'
+                with open(output_path, "wb") as output_file:
+                    writer.write(output_file)
+
+            # 4. COMPRESS PDF
+            elif tool_name == 'COMPRESS PDF':
+                output_path = input_path.rsplit('.', 1)[0] + '_compressed.pdf'
+                doc = fitz.open(input_path)
+                doc.save(output_path, garbage=4, deflate=True, clean=True)
+                doc.close()
+
+            # 5. PDF to WORD
+            elif tool_name == 'PDF to WORD':
                 output_path = input_path.rsplit('.', 1)[0] + '.docx'
                 cv = Converter(input_path)
                 cv.convert(output_path)
                 cv.close()
 
-            # 2. WORD, PPT to PDF (LibreOffice)
-            elif tool_name in ['WORD to PDF', 'POWERPOINT to PDF']:
+            # 6. WORD, PPT, HTML to PDF
+            elif tool_name in ['WORD to PDF', 'POWERPOINT to PDF', 'HTML to PDF']:
                 convert_to_pdf_linux(input_path, UPLOAD_FOLDER)
                 base_name = os.path.splitext(filename)[0]
                 output_path = os.path.join(UPLOAD_FOLDER, base_name + '.pdf')
 
-            # 3. EXCEL to PDF (Professional Table Layout + Webo1 Branding)
+            # 7. EXCEL to PDF
             elif tool_name == 'EXCEL to PDF':
                 output_path = input_path.rsplit('.', 1)[0] + '.pdf'
-                
-                # Read Excel or CSV
                 if input_path.endswith('.csv'):
                     df = pd.read_csv(input_path)
                 else:
                     df = pd.read_excel(input_path)
                 
-                # Clean columns and data
                 df = df.fillna("")
                 data = [df.columns.tolist()] + df.values.tolist()
 
-                # Generate professional PDF using ReportLab
                 doc = SimpleDocTemplate(output_path, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=40, bottomMargin=40)
                 elements = []
-                
                 styles = getSampleStyleSheet()
-                title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=16, textColor=colors.HexColor('#1a365d'), spaceAfter=10, alignment=1)
+                
+                title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=16, textColor=colors.HexColor('#e53e3e'), spaceAfter=6, alignment=1)
                 footer_style = ParagraphStyle('FooterStyle', parent=styles['Normal'], fontSize=9, textColor=colors.HexColor('#718096'), alignment=1)
 
-                # Title & Webo1 Branding Header
-                elements.append(Paragraph("<b>Kanha Computers & Webo1 Data Report</b>", title_style))
-                elements.append(Paragraph("Powered by Webo1 (webo1.com) — Digital Academy & IT Services, Jaipur", ParagraphStyle('Sub', parent=styles['Normal'], fontSize=10, textColor=colors.HexColor('#2b6cb0'), alignment=1, spaceAfter=15)))
+                elements.append(Paragraph("<b>Webo1 Data Report</b>", title_style))
+                elements.append(Paragraph("Powered by Webo1 (webo1.com)", ParagraphStyle('Sub', parent=styles['Normal'], fontSize=10, textColor=colors.HexColor('#2b6cb0'), alignment=1, spaceAfter=15)))
 
-                # Format table for clean readability
-                table_data = []
-                for row in data:
-                    table_data.append([Paragraph(str(cell), styles['Normal']) for cell in row])
-
+                table_data = [[Paragraph(str(cell), styles['Normal']) for cell in row] for row in data]
                 t = Table(table_data, repeatRows=1)
                 t.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2b6cb0')),
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#e53e3e')),
                     ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
                     ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
                     ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
@@ -121,16 +157,13 @@ def convert_file():
                     ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
                     ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#f7fafc')),
                     ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cbd5e0')),
-                    ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#edf2f7')]),
                 ]))
-                
                 elements.append(t)
                 elements.append(Spacer(1, 20))
-                elements.append(Paragraph("© Webo1 Enterprise | Bani Park, Jaipur | webo1.com", footer_style))
-                
+                elements.append(Paragraph("© Webo1 Enterprise | webo1.com", footer_style))
                 doc.build(elements)
 
-            # 4. PDF to EXCEL
+            # 8. PDF to EXCEL
             elif tool_name == 'PDF to EXCEL':
                 output_path = input_path.rsplit('.', 1)[0] + '.xlsx'
                 all_rows = []
@@ -151,9 +184,9 @@ def convert_file():
                     df = pd.DataFrame(all_rows)
                     df.to_excel(output_path, index=False, header=False)
                 else:
-                    pd.DataFrame({"Message": ["No data or leads found in PDF"]}).to_excel(output_path, index=False)
+                    pd.DataFrame({"Message": ["No data found in PDF"]}).to_excel(output_path, index=False)
 
-            # 5. PDF to POWERPOINT
+            # 9. PDF to POWERPOINT
             elif tool_name == 'PDF to POWERPOINT':
                 output_path = input_path.rsplit('.', 1)[0] + '.pptx'
                 prs = Presentation()
@@ -161,12 +194,12 @@ def convert_file():
                     for page in pdf.pages:
                         text = page.extract_text()
                         slide = prs.slides.add_slide(prs.slide_layouts[1])
-                        slide.shapes.title.text = "Kanha Computers - Converted Page"
+                        slide.shapes.title.text = "Webo1 Converted Page"
                         slide.placeholders[1].text = text if text else "No text found"
                 prs.save(output_path)
 
-            # 6. PDF to JPG / IMAGES (Multi-page ZIP support)
-            elif tool_name in ['PDF to JPG', 'PDF to PNG', 'PDF to IMAGE']:
+            # 10. PDF to JPG (ZIP)
+            elif tool_name == 'PDF to JPG':
                 doc = fitz.open(input_path)
                 image_paths = []
                 for i, page in enumerate(doc):
@@ -178,7 +211,7 @@ def convert_file():
                 if len(image_paths) == 1:
                     output_path = image_paths[0]
                 else:
-                    output_path = os.path.join(UPLOAD_FOLDER, "webo1_converted_images.zip")
+                    output_path = os.path.join(UPLOAD_FOLDER, "webo1_images.zip")
                     with zipfile.ZipFile(output_path, 'w') as zipf:
                         for img in image_paths:
                             zipf.write(img, os.path.basename(img))
@@ -190,7 +223,7 @@ def convert_file():
         if output_path and os.path.exists(output_path):
             return send_file(output_path, as_attachment=True)
         else:
-            return "Conversion failed", 500
+            return "Conversion failed on server", 500
 
     except Exception as e:
         print(f"Error: {e}")
