@@ -6,7 +6,7 @@ from flask import Flask, request, send_file
 from flask_cors import CORS
 import pdfplumber
 import pandas as pd
-from pypdf import PdfMerger, PdfReader, PdfWriter
+from pypdf import PdfReader, PdfWriter
 
 try:
     from pdf2docx import Converter
@@ -45,12 +45,13 @@ def convert_file():
     output_path = None
 
     try:
+        # 1. MERGE PDF (Fixed for modern pypdf)
         if tool_name == 'MERGE PDF':
             files = request.files.getlist('file')
             if not files or len(files) < 2:
                 return "Please select at least 2 PDF files to merge", 400
             
-            merger = PdfMerger()
+            writer = PdfWriter()
             saved_paths = []
             for file in files:
                 if file.filename:
@@ -58,15 +59,19 @@ def convert_file():
                     fpath = os.path.join(UPLOAD_FOLDER, fname)
                     file.save(fpath)
                     saved_paths.append(fpath)
-                    merger.append(fpath)
+                    reader = PdfReader(fpath)
+                    for page in reader.pages:
+                        writer.add_page(page)
             
             output_path = os.path.join(UPLOAD_FOLDER, "webo1_merged.pdf")
-            merger.write(output_path)
-            merger.close()
+            with open(output_path, "wb") as output_file:
+                writer.write(output_file)
+
             for p in saved_paths:
                 try: os.remove(p)
                 except: pass
 
+        # 2. JPG to PDF
         elif tool_name == 'JPG to PDF':
             files = request.files.getlist('file')
             if not files:
