@@ -4,15 +4,27 @@ import zipfile
 import fitz  # PyMuPDF
 from flask import Flask, request, send_file
 from flask_cors import CORS
-from pdf2docx import Converter
 import pdfplumber
 import pandas as pd
-from pptx import Presentation
-from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib import colors
 from pypdf import PdfMerger, PdfReader, PdfWriter
+
+try:
+    from pdf2docx import Converter
+except:
+    Converter = None
+
+try:
+    from pptx import Presentation
+except:
+    Presentation = None
+
+try:
+    from reportlab.lib.pagesizes import letter
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib import colors
+except:
+    SimpleDocTemplate = None
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
@@ -33,7 +45,6 @@ def convert_file():
     output_path = None
 
     try:
-        # 1. MERGE PDF
         if tool_name == 'MERGE PDF':
             files = request.files.getlist('file')
             if not files or len(files) < 2:
@@ -56,7 +67,6 @@ def convert_file():
                 try: os.remove(p)
                 except: pass
 
-        # 2. JPG to PDF (Optimized memory usage)
         elif tool_name == 'JPG to PDF':
             files = request.files.getlist('file')
             if not files:
@@ -97,7 +107,6 @@ def convert_file():
             input_path = os.path.join(UPLOAD_FOLDER, filename)
             file.save(input_path)
 
-            # 3. SPLIT PDF
             if tool_name == 'SPLIT PDF':
                 reader = PdfReader(input_path)
                 writer = PdfWriter()
@@ -107,28 +116,28 @@ def convert_file():
                 with open(output_path, "wb") as output_file:
                     writer.write(output_file)
 
-            # 4. COMPRESS PDF
             elif tool_name == 'COMPRESS PDF':
                 output_path = input_path.rsplit('.', 1)[0] + '_compressed.pdf'
                 doc = fitz.open(input_path)
                 doc.save(output_path, garbage=4, deflate=True, clean=True)
                 doc.close()
 
-            # 5. PDF to WORD
             elif tool_name == 'PDF to WORD':
+                if not Converter:
+                    return "pdf2docx is not available on server", 500
                 output_path = input_path.rsplit('.', 1)[0] + '.docx'
                 cv = Converter(input_path)
                 cv.convert(output_path)
                 cv.close()
 
-            # 6. WORD, PPT, HTML to PDF
             elif tool_name in ['WORD to PDF', 'POWERPOINT to PDF', 'HTML to PDF']:
                 convert_to_pdf_linux(input_path, UPLOAD_FOLDER)
                 base_name = os.path.splitext(filename)[0]
                 output_path = os.path.join(UPLOAD_FOLDER, base_name + '.pdf')
 
-            # 7. EXCEL to PDF
             elif tool_name == 'EXCEL to PDF':
+                if not SimpleDocTemplate:
+                    return "ReportLab is not available on server", 500
                 output_path = input_path.rsplit('.', 1)[0] + '.pdf'
                 if input_path.endswith('.csv'):
                     df = pd.read_csv(input_path)
@@ -165,7 +174,6 @@ def convert_file():
                 elements.append(Paragraph("© Webo1 Enterprise | webo1.com", footer_style))
                 doc.build(elements)
 
-            # 8. PDF to EXCEL
             elif tool_name == 'PDF to EXCEL':
                 output_path = input_path.rsplit('.', 1)[0] + '.xlsx'
                 all_rows = []
@@ -188,8 +196,9 @@ def convert_file():
                 else:
                     pd.DataFrame({"Message": ["No data found in PDF"]}).to_excel(output_path, index=False)
 
-            # 9. PDF to POWERPOINT
             elif tool_name == 'PDF to POWERPOINT':
+                if not Presentation:
+                    return "python-pptx is not available on server", 500
                 output_path = input_path.rsplit('.', 1)[0] + '.pptx'
                 prs = Presentation()
                 with pdfplumber.open(input_path) as pdf:
@@ -200,12 +209,11 @@ def convert_file():
                         slide.placeholders[1].text = text if text else "No text found"
                 prs.save(output_path)
 
-            # 10. PDF to JPG (ZIP)
             elif tool_name == 'PDF to JPG':
                 doc = fitz.open(input_path)
                 image_paths = []
                 for i, page in enumerate(doc):
-                    pix = page.get_pixmap(dpi=120)  # Optimized DPI to prevent memory overflow
+                    pix = page.get_pixmap(dpi=120)
                     img_path = os.path.join(UPLOAD_FOLDER, f"page_{i+1}.jpg")
                     pix.save(img_path)
                     image_paths.append(img_path)
