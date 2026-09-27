@@ -7,3 +7,5 @@ openpyxl
 python-pptx
 PyMuPDF
 reportlab
+pypdf
+gunicorn
