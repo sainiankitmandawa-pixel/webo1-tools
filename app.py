@@ -21,6 +21,8 @@ def home():
 
 def simple_translate(text, target_lang='hi'):
     try:
+        if not text or not text.strip():
+            return ""
         text = text[:1500]
         url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl={target_lang}&dt=t&q={urllib.parse.quote(text)}"
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
@@ -37,7 +39,6 @@ def convert_file():
     output_path = None
 
     try:
-        # 1. TRANSLATE PDF
         if tool_name == 'TRANSLATE PDF':
             if 'file' not in request.files:
                 return "No file uploaded", 400
@@ -54,14 +55,21 @@ def convert_file():
             translated_doc = fitz.open()
 
             for page in doc:
-                text = page.get_text()
-                if text.strip():
-                    translated_text = simple_translate(text, target_lang)
-                else:
-                    translated_text = ""
+                # Extract text using both block and standard method for better accuracy
+                text = page.get_text("text")
+                if not text.strip():
+                    # Fallback to pdfplumber extraction if fitz is empty
+                    with pdfplumber.open(input_path) as p_pdf:
+                        p_page = p_pdf.pages[page.number]
+                        text = p_page.extract_text() or ""
+
+                translated_text = simple_translate(text, target_lang) if text.strip() else "[No extractable text found on this page]"
                 
                 new_page = translated_doc.new_page(width=page.rect.width, height=page.rect.height)
-                new_page.insert_text((50, 50), translated_text, fontsize=11, fontname="helv")
+                
+                # Draw translated text neatly onto the new PDF page
+                rect = fitz.Rect(50, 50, page.rect.width - 50, page.rect.height - 50)
+                new_page.insert_textbox(rect, translated_text, fontsize=10, fontname="helv")
 
             translated_doc.save(output_path)
             translated_doc.close()
@@ -73,7 +81,6 @@ def convert_file():
 
             return send_file(output_path, as_attachment=True)
 
-        # 2. MERGE PDF
         elif tool_name == 'MERGE PDF':
             files = request.files.getlist('file')
             if not files or len(files) < 2:
@@ -99,7 +106,6 @@ def convert_file():
                 try: os.remove(p)
                 except: pass
 
-        # 3. JPG to PDF
         elif tool_name == 'JPG to PDF':
             files = request.files.getlist('file')
             if not files:
