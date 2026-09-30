@@ -7,6 +7,7 @@ from flask_cors import CORS
 import pdfplumber
 import pandas as pd
 from pypdf import PdfReader, PdfWriter
+from deep_translator import GoogleTranslator
 
 try:
     from pdf2docx import Converter
@@ -45,8 +46,45 @@ def convert_file():
     output_path = None
 
     try:
-        # 1. MERGE PDF (Fixed for modern pypdf)
-        if tool_name == 'MERGE PDF':
+        # 1. TRANSLATE PDF
+        if tool_name == 'TRANSLATE PDF':
+            if 'file' not in request.files:
+                return "No file uploaded", 400
+            
+            file = request.files['file']
+            filename = file.filename.replace(" ", "_")
+            input_path = os.path.join(UPLOAD_FOLDER, filename)
+            file.save(input_path)
+            
+            target_lang = request.form.get('targetLanguage', 'hi')
+            output_path = os.path.join(UPLOAD_FOLDER, "translated_" + filename)
+            
+            doc = fitz.open(input_path)
+            translated_doc = fitz.open()
+            translator = GoogleTranslator(source='auto', target=target_lang)
+
+            for page in doc:
+                text = page.get_text()
+                if text.strip():
+                    translated_text = translator.translate(text[:4000]) or text
+                else:
+                    translated_text = ""
+                
+                new_page = translated_doc.new_page(width=page.rect.width, height=page.rect.height)
+                new_page.insert_text((50, 50), translated_text, fontsize=11, fontname="helv")
+
+            translated_doc.save(output_path)
+            translated_doc.close()
+            doc.close()
+
+            if os.path.exists(input_path):
+                try: os.remove(input_path)
+                except: pass
+
+            return send_file(output_path, as_attachment=True)
+
+        # 2. MERGE PDF (Fixed for modern pypdf)
+        elif tool_name == 'MERGE PDF':
             files = request.files.getlist('file')
             if not files or len(files) < 2:
                 return "Please select at least 2 PDF files to merge", 400
@@ -63,7 +101,7 @@ def convert_file():
                     for page in reader.pages:
                         writer.add_page(page)
             
-            output_path = os.path.join(UPLOAD_FOLDER, "webo1_merged.pdf")
+            output_path = os.path.join(UPLOAD_FOLDER, "merged.pdf")
             with open(output_path, "wb") as output_file:
                 writer.write(output_file)
 
@@ -71,7 +109,7 @@ def convert_file():
                 try: os.remove(p)
                 except: pass
 
-        # 2. JPG to PDF
+        # 3. JPG to PDF
         elif tool_name == 'JPG to PDF':
             files = request.files.getlist('file')
             if not files:
@@ -85,7 +123,7 @@ def convert_file():
                     file.save(fpath)
                     img_paths.append(fpath)
             
-            output_path = os.path.join(UPLOAD_FOLDER, "webo1_images.pdf")
+            output_path = os.path.join(UPLOAD_FOLDER, "images.pdf")
             doc = fitz.open()
             for img_path in img_paths:
                 try:
@@ -159,8 +197,8 @@ def convert_file():
                 title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=16, textColor=colors.HexColor('#e53e3e'), spaceAfter=6, alignment=1)
                 footer_style = ParagraphStyle('FooterStyle', parent=styles['Normal'], fontSize=9, textColor=colors.HexColor('#718096'), alignment=1)
 
-                elements.append(Paragraph("<b>Webo1 Data Report</b>", title_style))
-                elements.append(Paragraph("Powered by Webo1 (webo1.com)", ParagraphStyle('Sub', parent=styles['Normal'], fontSize=10, textColor=colors.HexColor('#2b6cb0'), alignment=1, spaceAfter=15)))
+                elements.append(Paragraph("<b>Data Report</b>", title_style))
+                elements.append(Paragraph("Processed via Webo1 Tools", ParagraphStyle('Sub', parent=styles['Normal'], fontSize=10, textColor=colors.HexColor('#2b6cb0'), alignment=1, spaceAfter=15)))
 
                 table_data = [[Paragraph(str(cell), styles['Normal']) for cell in row] for row in data]
                 t = Table(table_data, repeatRows=1)
@@ -176,7 +214,6 @@ def convert_file():
                 ]))
                 elements.append(t)
                 elements.append(Spacer(1, 20))
-                elements.append(Paragraph("© Webo1 Enterprise | webo1.com", footer_style))
                 doc.build(elements)
 
             elif tool_name == 'PDF to EXCEL':
@@ -210,7 +247,7 @@ def convert_file():
                     for page in pdf.pages:
                         text = page.extract_text()
                         slide = prs.slides.add_slide(prs.slide_layouts[1])
-                        slide.shapes.title.text = "Webo1 Converted Page"
+                        slide.shapes.title.text = "Converted Page"
                         slide.placeholders[1].text = text if text else "No text found"
                 prs.save(output_path)
 
@@ -227,7 +264,7 @@ def convert_file():
                 if len(image_paths) == 1:
                     output_path = image_paths[0]
                 else:
-                    output_path = os.path.join(UPLOAD_FOLDER, "webo1_images.zip")
+                    output_path = os.path.join(UPLOAD_FOLDER, "images.zip")
                     with zipfile.ZipFile(output_path, 'w') as zipf:
                         for img in image_paths:
                             zipf.write(img, os.path.basename(img))
