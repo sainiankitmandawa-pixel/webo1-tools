@@ -1,11 +1,10 @@
 Flask
 flask-cors
-pypdf
+deep-translator
+pdf2docx
 PyMuPDF
+pypdf
 pdfplumber
 pandas
-openpyxl
 python-pptx
 reportlab
-pdf2docx
-gunicorn
