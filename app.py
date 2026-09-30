@@ -7,7 +7,8 @@ from flask_cors import CORS
 import pdfplumber
 import pandas as pd
 from pypdf import PdfReader, PdfWriter
-from deep_translator import GoogleTranslator
+import urllib.request
+import json
 
 try:
     from pdf2docx import Converter
@@ -40,6 +41,18 @@ def home():
 def convert_to_pdf_linux(input_path, output_dir):
     subprocess.run(['libreoffice', '--headless', '--convert-to', 'pdf', input_path, '--outdir', output_dir])
 
+def simple_translate(text, target_lang='hi'):
+    try:
+        text = text[:1500] # Limit chunk for safety
+        url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl={target_lang}&dt=t&q={urllib.parse.quote(text)}"
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req) as response:
+            res = json.loads(response.read().decode('utf-8'))
+            return "".join([item[0] for item in res[0] if item[0]])
+    except Exception as e:
+        print(f"Translation error: {e}")
+        return text
+
 @app.route('/convert', methods=['POST'])
 def convert_file():
     tool_name = request.form.get('toolName')
@@ -61,12 +74,11 @@ def convert_file():
             
             doc = fitz.open(input_path)
             translated_doc = fitz.open()
-            translator = GoogleTranslator(source='auto', target=target_lang)
 
             for page in doc:
                 text = page.get_text()
                 if text.strip():
-                    translated_text = translator.translate(text[:4000]) or text
+                    translated_text = simple_translate(text, target_lang)
                 else:
                     translated_text = ""
                 
@@ -83,7 +95,7 @@ def convert_file():
 
             return send_file(output_path, as_attachment=True)
 
-        # 2. MERGE PDF (Fixed for modern pypdf)
+        # 2. MERGE PDF
         elif tool_name == 'MERGE PDF':
             files = request.files.getlist('file')
             if not files or len(files) < 2:
