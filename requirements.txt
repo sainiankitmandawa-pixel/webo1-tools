@@ -1,6 +1,5 @@
 Flask
 flask-cors
-deep-translator
 pdf2docx
 PyMuPDF
 pypdf
