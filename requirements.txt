@@ -1,9 +1,7 @@
-Flask
-flask-cors
-pdf2docx
-PyMuPDF
-pypdf
-pdfplumber
-pandas
-python-pptx
-reportlab
+Flask==3.0.2
+flask-cors==4.0.0
+PyMuPDF==1.23.8
+pypdf==4.1.0
+pdfplumber==0.11.0
+pandas==2.2.1
+openpyxl==3.1.2
